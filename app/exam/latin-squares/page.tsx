@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import LatinSquare from "@/components/LatinSquare";
@@ -42,7 +42,7 @@ type Result = {
 
 const EXAM_DURATION_SECONDS = 25 * 60;
 
-export default function LatinSquaresPage() {
+function LatinSquaresContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const testId = searchParams.get("testId");
@@ -594,5 +594,23 @@ const { data: mockTest, error: mockError } = await supabase
         </aside>
       </div>
     </main>
+  );
+}
+
+// Keep useSearchParams() inside a Suspense boundary for production builds.
+export default function LatinSquaresPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-gray-50">
+          <div className="text-center">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+            <p className="mt-4 text-gray-600">Loading Latin Squares...</p>
+          </div>
+        </main>
+      }
+    >
+      <LatinSquaresContent />
+    </Suspense>
   );
 }
