@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import LatinSquare from "@/components/LatinSquare";
 
@@ -14,11 +14,11 @@ type LatinSquareContent = {
 };
 
 type LatinSquareOptions = {
-  A: string;
-  B: string;
-  C: string;
-  D: string;
-  E: string;
+  A: string[][];
+  B: string[][];
+  C: string[][];
+  D: string[][];
+  E: string[][];
 };
 
 type Question = {
@@ -44,8 +44,9 @@ const EXAM_DURATION_SECONDS = 25 * 60;
 
 export default function LatinSquaresPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const testId = searchParams.get("testId");
   const supabase = useMemo(() => createClient(), []);
-
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -59,13 +60,18 @@ export default function LatinSquaresPage() {
   // LOAD QUESTIONS
   const loadQuestions = useCallback(async () => {
     try {
-      const { data: mockTest, error: mockError } = await supabase
-        .from("mock_tests")
-        .select("id")
-        .eq("published", true)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
+      if (!testId) {
+  alert("Missing test ID. Please return to the dashboard and start again.");
+  router.push("/dashboard");
+  return;
+}
+
+const { data: mockTest, error: mockError } = await supabase
+  .from("mock_tests")
+  .select("id")
+  .eq("id", testId)
+  .eq("published", true)
+  .single();
 
       if (mockError || !mockTest) {
         console.error("Mock test error:", mockError);
@@ -112,12 +118,22 @@ export default function LatinSquaresPage() {
     } finally {
       setLoading(false);
     }
-  }, [router, supabase]);
+  }, [router, supabase, testId]);
 
   useEffect(() => {
-    void loadQuestions();
-  }, [loadQuestions]);
+  let cancelled = false;
 
+  async function run() {
+    if (cancelled) return;
+    await loadQuestions();
+  }
+
+  void run();
+
+  return () => {
+    cancelled = true;
+  };
+}, [loadQuestions]);
   // SUBMIT SECTION
   const handleSubmit = useCallback(async () => {
     if (submissionStarted.current || questions.length === 0) {
@@ -199,14 +215,16 @@ export default function LatinSquaresPage() {
       localStorage.setItem("dmatAnswers", JSON.stringify(answers));
       localStorage.setItem("dmatQuestionIds", JSON.stringify(questionIds));
 
-      router.push("/exam/section-complete?section=latin-squares");
+      router.push(
+  `/exam/section-complete?section=latin-squares&testId=${encodeURIComponent(testId ?? "")}`
+);
     } catch (error) {
       console.error("Submission error:", error);
       alert("Something went wrong while submitting your answers.");
       submissionStarted.current = false;
       setSubmitting(false);
     }
-  }, [answers, questions, router, supabase]);
+  }, [answers, questions, router, supabase, testId]);
 
   // TIMER
   useEffect(() => {
@@ -215,9 +233,12 @@ export default function LatinSquaresPage() {
     }
 
     if (timeLeft <= 0) {
-      void handleSubmit();
-      return;
-    }
+  const timeout = window.setTimeout(() => {
+    void handleSubmit();
+  }, 0);
+
+  return () => window.clearTimeout(timeout);
+}
 
     const timer = window.setTimeout(() => {
       setTimeLeft((previous) => Math.max(previous - 1, 0));
@@ -393,51 +414,73 @@ export default function LatinSquaresPage() {
             </div>
 
             {/* OPTIONS */}
-            <div className="mt-10">
-              <p className="text-center text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Select your answer
-              </p>
+<div className="mt-10">
+  <p className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide">
+    Select your answer
+  </p>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-5">
-                {(["A", "B", "C", "D", "E"] as const).map((option) => {
-                  const isSelected = selectedAnswer === option;
-                  const optionText = question.options?.[option] ?? option;
+  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    {(["A", "B", "C", "D", "E"] as const).map((option) => {
+      const isSelected = selectedAnswer === option;
+      const optionGrid = question.options?.[option];
 
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => selectAnswer(question.id, option)}
-                      aria-pressed={isSelected}
-                      disabled={submitting}
-                      className={`rounded-2xl border-2 p-4 transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                        isSelected
-                          ? "border-blue-600 bg-blue-50"
-                          : "border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 sm:flex-col">
-                        <div
-                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-bold ${
-                            isSelected
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-100 text-gray-700"
-                          }`}
-                        >
-                          {option}
-                        </div>
-
-                        <div className="text-center font-medium text-gray-800">
-                          {optionText}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+      return (
+        <button
+          key={option}
+          type="button"
+          onClick={() => selectAnswer(question.id, option)}
+          aria-pressed={isSelected}
+          className={`rounded-2xl border-2 p-3 transition ${
+            isSelected
+              ? "border-blue-600 bg-blue-50"
+              : "border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50"
+          }`}
+        >
+          <div className="mb-3 flex justify-center">
+            <span
+              className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
+                isSelected
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              {option}
+            </span>
           </div>
 
+          {Array.isArray(optionGrid) ? (
+  <div className="mx-auto w-fit overflow-hidden rounded border-2 border-gray-700">
+    {optionGrid.map((row, rowIndex) => (
+      <div key={rowIndex} className="flex">
+        {Array.isArray(row) ? (
+          row.map((cell, columnIndex) => (
+            <div
+              key={`${rowIndex}-${columnIndex}`}
+              className="flex h-9 w-9 items-center justify-center border-b border-r border-gray-300 text-sm font-semibold"
+            >
+              {cell}
+            </div>
+          ))
+        ) : (
+          <div className="p-2 text-sm">{String(row)}</div>
+        )}
+      </div>
+    ))}
+  </div>
+) : (
+  <p className="py-3 text-center text-sm font-semibold">
+    {typeof optionGrid === "string"
+      ? optionGrid
+      : optionGrid == null
+        ? "No option data"
+        : JSON.stringify(optionGrid)}
+  </p>
+)}
+        </button>
+      );
+    })}
+  </div>
+</div>
           {/* PREVIOUS / NEXT / SUBMIT */}
           <div className="mt-6 flex items-center justify-between gap-3">
             <button
@@ -468,6 +511,7 @@ export default function LatinSquaresPage() {
                 {submitting ? "Submitting..." : "Submit Section"}
               </button>
             )}
+                    </div>
           </div>
         </section>
 

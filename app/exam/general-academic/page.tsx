@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type Question = {
@@ -29,7 +29,10 @@ const EXAM_DURATION_SECONDS = 90 * 60;
 
 export default function GeneralAcademicPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const searchParams = useSearchParams();
+  const testId = searchParams.get("testId");
+  const supabase = useMemo(() => createClient(), []);
+  const autoSubmitStarted = useRef(false);
 
   const [questions, setQuestions] = useState<Question[]>(
     []
@@ -50,42 +53,41 @@ export default function GeneralAcademicPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // -----------------------------------------
-  // LOAD QUESTIONS
+  // LOAD QUESTIONS FOR THE SELECTED MOCK TEST
   // -----------------------------------------
   useEffect(() => {
+    let cancelled = false;
+
     async function loadQuestions() {
+      if (!testId) {
+        alert("Missing test ID. Please start the mock test from the dashboard.");
+        router.replace("/dashboard");
+        return;
+      }
+
       try {
         const {
-          data: mockTest,
-          error: mockError,
-        } = await supabase
-          .from("mock_tests")
-          .select("id")
-          .eq("published", true)
-          .order("created_at", {
-            ascending: false,
-          })
-          .limit(1)
-          .single();
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
 
-        if (mockError || !mockTest) {
-          console.error(
-            "Mock test error:",
-            mockError
-          );
-
-          alert(
-            "Unable to load the mock test."
-          );
-
-          router.push("/dashboard");
+        if (authError || !user) {
+          router.replace("/login");
           return;
         }
 
-        const {
-          data,
-          error,
-        } = await supabase
+        const { data: mockTest, error: mockError } = await supabase
+          .from("mock_tests")
+          .select("id")
+          .eq("id", testId)
+          .eq("published", true)
+          .single();
+
+        if (mockError || !mockTest) {
+          throw new Error("The selected mock test is unavailable or unpublished.");
+        }
+
+        const { data, error } = await supabase
           .from("questions")
           .select(`
             id,
@@ -97,92 +99,34 @@ export default function GeneralAcademicPage() {
             option_d,
             difficulty
           `)
-          .eq(
-            "mock_test_id",
-            mockTest.id
-          )
-          .eq(
-            "section",
-            "general_academic"
-          )
-          .order(
-            "question_number",
-            {
-              ascending: true,
-            }
-          );
+          .eq("mock_test_id", mockTest.id)
+          .eq("section", "general_academic")
+          .order("question_number", { ascending: true });
 
         if (error) {
-          console.error(
-            "Question loading error:",
-            error
-          );
-
-          alert(
-            "Unable to load General Academic questions."
-          );
-
-          router.push("/dashboard");
-          return;
+          throw new Error(`Unable to load General Academic questions: ${error.message}`);
         }
 
-        if (!data || data.length === 0) {
-          setQuestions([]);
-          return;
+        if (!cancelled) {
+          setQuestions((data ?? []) as Question[]);
+          setCurrentQuestion(0);
         }
-
-        setQuestions(data);
       } catch (error) {
-        console.error(error);
-
-        alert(
-          "Something went wrong while loading the section."
-        );
-
-        router.push("/dashboard");
+        console.error("General Academic loading error:", error);
+        if (!cancelled) {
+          alert(error instanceof Error ? error.message : "Something went wrong while loading the section.");
+          router.replace("/dashboard");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
-    loadQuestions();
-  }, []);
-
-  // -----------------------------------------
-  // TIMER
-  // -----------------------------------------
-  useEffect(() => {
-    if (
-      loading ||
-      questions.length === 0
-    ) {
-      return;
-    }
-
-    if (timeLeft <= 0) {
-      handleSubmit();
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setTimeLeft((previous) => {
-        if (previous <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-
-        return previous - 1;
-      });
-    }, 1000);
-
+    void loadQuestions();
     return () => {
-      clearInterval(timer);
+      cancelled = true;
     };
-  }, [
-    timeLeft,
-    loading,
-    questions.length,
-  ]);
+  }, [router, supabase, testId]);
 
   // -----------------------------------------
   // FORMAT TIMER
@@ -247,7 +191,7 @@ export default function GeneralAcademicPage() {
   // -----------------------------------------
   // SUBMIT
   // -----------------------------------------
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     if (
       submitting ||
       questions.length === 0
@@ -299,6 +243,7 @@ export default function GeneralAcademicPage() {
               questionIds,
               answers,
               sessionId: localStorage.getItem("dmatSessionId"),
+              testId,
             }),
           }
         );
@@ -381,7 +326,7 @@ export default function GeneralAcademicPage() {
       );
 
       router.push(
-        "/exam/section-complete?section=general-academic"
+        `/exam/section-complete?section=general-academic&testId=${encodeURIComponent(testId ?? "")}`
       );
     } catch (error) {
       console.error(
@@ -395,7 +340,28 @@ export default function GeneralAcademicPage() {
 
       setSubmitting(false);
     }
-  }
+  }, [answers, questions, router, supabase, submitting, testId]);
+
+  // -----------------------------------------
+  // TIMER
+  // -----------------------------------------
+  useEffect(() => {
+    if (loading || questions.length === 0 || submitting) return;
+
+    if (timeLeft <= 0) {
+      if (!autoSubmitStarted.current) {
+        autoSubmitStarted.current = true;
+        void handleSubmit();
+      }
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setTimeLeft((previous) => Math.max(previous - 1, 0));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [timeLeft, loading, questions.length, submitting, handleSubmit]);
 
   // -----------------------------------------
   // LOADING
@@ -479,10 +445,6 @@ export default function GeneralAcademicPage() {
       questions.length) *
     100;
 
-  // -----------------------------------------
-  // MAIN UI
-  // -----------------------------------------
-  
   // -----------------------------------------
   // MAIN UI
   // -----------------------------------------

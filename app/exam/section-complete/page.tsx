@@ -1,61 +1,71 @@
-
 "use client";
 
 import { Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 function SectionCompleteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const section = searchParams.get("section");
+  const testId = searchParams.get("testId");
 
   const isFigureSequences = section === "figure-sequences";
   const isMathematicalEquations = section === "mathematical-equations";
   const isLatinSquares = section === "latin-squares";
   const isGeneralAcademic = section === "general-academic";
 
-  function continueToNextSection() {
-    if (isFigureSequences) {
-      router.push("/exam/mathematical-equations");
-      return;
-    }
+  
+function continueToNextSection() {
+  const testQuery = testId
+    ? `?testId=${encodeURIComponent(testId)}`
+    : "";
 
-    if (isMathematicalEquations) {
-      router.push("/exam/latin-squares");
-      return;
-    }
-
-    if (isLatinSquares) {
-      router.push("/exam/general-academic");
-      return;
-    }
-
-    if (isGeneralAcademic) {
-      router.push("/results");
-      return;
-    }
-
-    router.push("/dashboard");
+  if (isFigureSequences) {
+    router.push(`/exam/mathematical-equations${testQuery}`);
+    return;
   }
+
+  if (isMathematicalEquations) {
+    router.push(`/exam/latin-squares${testQuery}`);
+    return;
+  }
+
+  if (isLatinSquares) {
+    router.push(`/exam/general-academic${testQuery}`);
+    return;
+  }
+
+  if (isGeneralAcademic) {
+    router.push(
+      testId
+        ? `/results?testId=${encodeURIComponent(testId)}`
+        : "/results"
+    );
+    return;
+  }
+
+  router.push("/dashboard");
+}
+
 
   const nextSectionNumber = isFigureSequences
     ? "2"
     : isMathematicalEquations
-    ? "3"
-    : "4";
+      ? "3"
+      : "4";
 
   const nextSectionName = isFigureSequences
     ? "Mathematical Equations"
     : isMathematicalEquations
-    ? "Latin Squares"
-    : "General Academic Module";
+      ? "Latin Squares"
+      : "General Academic Module";
 
   const nextSectionDescription = isFigureSequences
     ? "Solve systems of equations and determine the correct values for the unknowns."
     : isMathematicalEquations
-    ? "Complete logical patterns in Latin squares and select the correct answer."
-    : "Apply your academic knowledge to solve subject-related problems.";
+      ? "Complete logical patterns in Latin squares and select the correct answer."
+      : "Apply your academic knowledge to solve subject-related problems.";
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center px-4 py-8">
@@ -90,12 +100,12 @@ function SectionCompleteContent() {
             {isFigureSequences
               ? "Figure Sequences"
               : isMathematicalEquations
-              ? "Mathematical Equations"
-              : isLatinSquares
-              ? "Latin Squares"
-              : isGeneralAcademic
-              ? "General Academic Module"
-              : "Section Completed"}
+                ? "Mathematical Equations"
+                : isLatinSquares
+                  ? "Latin Squares"
+                  : isGeneralAcademic
+                    ? "General Academic Module"
+                    : "Section Completed"}
           </p>
 
           {/* Confirmation */}
@@ -152,12 +162,12 @@ function SectionCompleteContent() {
             {isFigureSequences
               ? "Continue to Mathematical Equations →"
               : isMathematicalEquations
-              ? "Continue to Latin Squares →"
-              : isLatinSquares
-              ? "Continue to General Academic →"
-              : isGeneralAcademic
-              ? "View Final Results →"
-              : "Continue →"}
+                ? "Continue to Latin Squares →"
+                : isLatinSquares
+                  ? "Continue to General Academic →"
+                  : isGeneralAcademic
+                    ? "View Final Results →"
+                    : "Continue →"}
           </button>
 
           {/* Dashboard action */}

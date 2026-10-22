@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -26,7 +26,7 @@ const EXAM_DURATION_SECONDS = 25 * 60;
 
 export default function MathematicalEquationsPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<NumericAnswers>({});
@@ -40,13 +40,20 @@ export default function MathematicalEquationsPage() {
 
     async function loadQuestions() {
       try {
-        const { data: mockTest, error: mockError } = await supabase
-          .from("mock_tests")
-          .select("id")
-          .eq("published", true)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
+        const testId = localStorage.getItem("dmatTestId");
+
+if (!testId) {
+  throw new Error(
+    "Test ID is missing. Please restart the mock test from the dashboard."
+  );
+}
+
+const { data: mockTest, error: mockError } = await supabase
+  .from("mock_tests")
+  .select("id")
+  .eq("id", testId)
+  .eq("published", true)
+  .single();
 
         if (mockError || !mockTest) {
           throw new Error("Unable to load the mock test.");
@@ -191,9 +198,11 @@ export default function MathematicalEquationsPage() {
         })
       );
 
-      router.push(
-        "/exam/section-complete?section=mathematical-equations"
-      );
+      const testId = localStorage.getItem("dmatTestId");
+
+router.push(
+  `/exam/section-complete?section=mathematical-equations&testId=${encodeURIComponent(testId ?? "")}`
+);
     } catch (error) {
       console.error("Submission error:", error);
       alert("Something went wrong while submitting your answers.");
@@ -204,16 +213,16 @@ export default function MathematicalEquationsPage() {
   useEffect(() => {
     if (loading || questions.length === 0 || submitting) return;
 
-    if (timeLeft <= 0) {
-      void handleSubmit();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setTimeLeft((previous) => Math.max(0, previous - 1));
+    const timer = window.setTimeout(() => {
+      if (timeLeft <= 1) {
+        setTimeLeft(0);
+        void handleSubmit();
+      } else {
+        setTimeLeft((previous) => Math.max(0, previous - 1));
+      }
     }, 1000);
 
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }, [timeLeft, loading, questions.length, submitting, handleSubmit]);
 
   function formatTime(seconds: number) {

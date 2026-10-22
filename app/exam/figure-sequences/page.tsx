@@ -113,6 +113,15 @@ export default function FigureSequencesPage() {
 
     async function loadQuestions() {
       try {
+        // The dashboard saves the selected mock test ID before the exam starts.
+        const testId = localStorage.getItem("dmatTestId");
+
+        if (!testId) {
+          throw new Error(
+            "Missing test ID. Please restart the mock test from the dashboard."
+          );
+        }
+
         const {
           data: { user },
           error: authError,
@@ -123,18 +132,18 @@ export default function FigureSequencesPage() {
           return;
         }
 
-        const { data: test, error: testError } = await supabase
-          .from("mock_tests")
-          .select("id")
-          .eq("title", "DMAT Full Mock Test 01")
-          .eq("published", true)
-          .single();
+       const { data: test, error: testError } = await supabase
+  .from("mock_tests")
+  .select("id")
+  .eq("id", testId)
+  .eq("published", true)
+  .single();
 
-        if (testError || !test) {
-          throw new Error(
-            testError?.message || "Published mock test could not be loaded."
-          );
-        }
+if (testError || !test) {
+  throw new Error(
+    testError?.message || "Published mock test could not be loaded."
+  );
+}
 
         const { data, error: questionError } = await supabase
           .from("questions")
@@ -256,6 +265,13 @@ export default function FigureSequencesPage() {
 
         const questionIds = questions.map((question) => question.id);
         const sessionId = localStorage.getItem("dmatSessionId");
+        const testId = localStorage.getItem("dmatTestId");
+
+        if (!testId) {
+          alert("Test ID is missing. Please restart the mock test from the dashboard.");
+          router.push("/dashboard");
+          return;
+        }
 
         if (!sessionId) {
           alert("Your exam session was not found. Please restart the exam.");
@@ -294,7 +310,10 @@ export default function FigureSequencesPage() {
           JSON.stringify(questionIds)
         );
 
-        router.push("/exam/section-complete?section=figure-sequences");
+        router.push(
+          `/exam/section-complete?section=figure-sequences&testId=${encodeURIComponent(testId)}`
+        );
+
       } catch (err) {
         console.error("Figure Sequences submission error:", err);
         alert("Something went wrong while submitting. Please try again.");
