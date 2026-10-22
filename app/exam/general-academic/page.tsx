@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -27,7 +27,7 @@ type Result = {
 
 const EXAM_DURATION_SECONDS = 90 * 60;
 
-export default function GeneralAcademicPage() {
+function GeneralAcademicContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const testId = searchParams.get("testId");
@@ -652,5 +652,20 @@ export default function GeneralAcademicPage() {
         </div>
       </div>
     </main>
+  );
+}
+export default function GeneralAcademicPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-gray-50">
+          <p className="text-gray-600">
+            Loading General Academic Module...
+          </p>
+        </main>
+      }
+    >
+      <GeneralAcademicContent />
+    </Suspense>
   );
 }
