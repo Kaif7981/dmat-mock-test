@@ -6,20 +6,32 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import LatinSquare from "@/components/LatinSquare";
 
+
 type LatinSquareContent = {
   type?: string;
   grid: string[][];
-  missingRow: number;
-  missingColumn: number;
+  missingRow?: number;
+  missingColumn?: number;
+  missingCells?: Array<{
+    row: number;
+    column: number;
+  }>;
+  questionCell?: {
+    row: number;
+    column: number;
+  };
 };
 
+
+
 type LatinSquareOptions = {
-  A: string[][];
-  B: string[][];
-  C: string[][];
-  D: string[][];
-  E: string[][];
+  A: string;
+  B: string;
+  C: string;
+  D: string;
+  E: string;
 };
+
 
 type Question = {
   id: string;
@@ -334,9 +346,13 @@ const { data: mockTest, error: mockError } = await supabase
   const progress =
     ((currentQuestion + 1) / questions.length) * 100;
 
-  const grid = question.content?.grid ?? [];
-  const missingRow = question.content?.missingRow ?? 0;
-  const missingColumn = question.content?.missingColumn ?? 0;
+  
+const grid = question.content?.grid ?? [];
+const missingRow = question.content?.missingRow ?? 0;
+const missingColumn = question.content?.missingColumn ?? 0;
+const missingCells = question.content?.missingCells ?? [];
+const questionCell = question.content?.questionCell;
+
 
   // MAIN UI
   return (
@@ -406,23 +422,27 @@ const { data: mockTest, error: mockError } = await supabase
 
             {/* LATIN SQUARE */}
             <div className="mt-8">
-              <LatinSquare
-                grid={grid}
-                missingRow={missingRow}
-                missingColumn={missingColumn}
-              />
+              
+<LatinSquare
+  grid={grid}
+  missingRow={missingRow}
+  missingColumn={missingColumn}
+  missingCells={missingCells}
+  questionCell={questionCell}
+/>
+
             </div>
 
-            {/* OPTIONS */}
+           
+{/* OPTIONS */}
 <div className="mt-10">
-  <p className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wide">
+  <p className="text-center text-sm font-semibold uppercase tracking-wide text-gray-500">
     Select your answer
   </p>
 
-  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+  <div className="mt-4 grid grid-cols-5 gap-3">
     {(["A", "B", "C", "D", "E"] as const).map((option) => {
       const isSelected = selectedAnswer === option;
-      const optionGrid = question.options?.[option];
 
       return (
         <button
@@ -430,57 +450,19 @@ const { data: mockTest, error: mockError } = await supabase
           type="button"
           onClick={() => selectAnswer(question.id, option)}
           aria-pressed={isSelected}
-          className={`rounded-2xl border-2 p-3 transition ${
+          className={`flex min-h-16 items-center justify-center rounded-xl border-2 text-lg font-bold transition ${
             isSelected
-              ? "border-blue-600 bg-blue-50"
-              : "border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50"
+              ? "border-blue-600 bg-blue-50 text-blue-700"
+              : "border-gray-200 bg-white text-gray-800 hover:border-blue-300"
           }`}
         >
-          <div className="mb-3 flex justify-center">
-            <span
-              className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
-                isSelected
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-700"
-              }`}
-            >
-              {option}
-            </span>
-          </div>
-
-          {Array.isArray(optionGrid) ? (
-  <div className="mx-auto w-fit overflow-hidden rounded border-2 border-gray-700">
-    {optionGrid.map((row, rowIndex) => (
-      <div key={rowIndex} className="flex">
-        {Array.isArray(row) ? (
-          row.map((cell, columnIndex) => (
-            <div
-              key={`${rowIndex}-${columnIndex}`}
-              className="flex h-9 w-9 items-center justify-center border-b border-r border-gray-300 text-sm font-semibold"
-            >
-              {cell}
-            </div>
-          ))
-        ) : (
-          <div className="p-2 text-sm">{String(row)}</div>
-        )}
-      </div>
-    ))}
-  </div>
-) : (
-  <p className="py-3 text-center text-sm font-semibold">
-    {typeof optionGrid === "string"
-      ? optionGrid
-      : optionGrid == null
-        ? "No option data"
-        : JSON.stringify(optionGrid)}
-  </p>
-)}
+          {option}
         </button>
       );
     })}
   </div>
 </div>
+
           {/* PREVIOUS / NEXT / SUBMIT */}
           <div className="mt-6 flex items-center justify-between gap-3">
             <button
