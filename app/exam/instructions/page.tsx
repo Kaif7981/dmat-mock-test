@@ -107,30 +107,38 @@ function ExamInstructionsContent() {
       }
 
       // Create a session for this exact mock test.
-      const { data: session, error: sessionError } = await supabase
-        .from("mock_sessions")
-        .insert({
-          user_id: user.id,
-          mock_test_id: mockTest.id,
-          status: "in_progress",
-        })
-        .select("id")
-        .single();
 
-      if (sessionError || !session) {
-        console.error("Session creation error:", sessionError);
-        throw new Error(
-          "Unable to start your mock test. Please try again."
-        );
-      }
+const startResponse = await fetch("/api/exam/start", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    testId: mockTest.id,
+  }),
+});
 
-      // Preserve the session and selected test for later sections.
-      localStorage.setItem("dmatSessionId", session.id);
-      localStorage.setItem("dmatTestId", mockTest.id);
+const startData = await startResponse.json();
 
-      router.push(
-        `/exam/figure-sequences?testId=${encodeURIComponent(mockTest.id)}`
-      );
+if (
+  !startResponse.ok ||
+  !startData.success ||
+  !startData.sessionId
+) {
+  throw new Error(
+    startData.error ||
+      "Unable to start your mock test. Please try again."
+  );
+}
+
+// Preserve the session and selected test for later sections.
+localStorage.setItem("dmatSessionId", startData.sessionId);
+localStorage.setItem("dmatTestId", mockTest.id);
+
+router.push(
+  `/exam/figure-sequences?testId=${encodeURIComponent(mockTest.id)}`
+);
+
     } catch (error) {
       console.error("Start mock test error:", error);
 

@@ -1,9 +1,29 @@
-
-"use client";
+ "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: {
+      key: string;
+      amount: number;
+      currency: string;
+      name: string;
+      description: string;
+      order_id: string;
+      prefill: { email: string };
+      theme: { color: string };
+      modal: { ondismiss: () => void };
+      handler: (response: {
+        razorpay_order_id: string;
+        razorpay_payment_id: string;
+        razorpay_signature: string;
+      }) => Promise<void>;
+    }) => { open: () => void };
+  }
+}
 
 type MockTest = {
   id: string;
@@ -32,6 +52,12 @@ type MockSession = {
   status: string;
 };
 
+type PaymentVerificationResponse = {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const supabase = createClient();
@@ -46,9 +72,12 @@ export default function Dashboard() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [startingTestId, setStartingTestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [hasLifetimeAccess, setHasLifetimeAccess] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
+  const [purchaseLoading, setPurchaseLoading] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState("");
 
   const loadDashboard = useCallback(async () => {
-
     try {
       const {
         data: { user },
@@ -61,7 +90,9 @@ export default function Dashboard() {
       }
 
       setUserName(
-        user.user_metadata?.full_name || user.email?.split("@")[0] || "Student"
+        user.user_metadata?.full_name ||
+          user.email?.split("@")[0] ||
+          "Student"
       );
       setUserEmail(user.email || "");
 
@@ -69,6 +100,7 @@ export default function Dashboard() {
         { data: testData, error: testError },
         { data: attemptData, error: attemptError },
         { data: sessionData, error: sessionError },
+        { data: purchaseData, error: purchaseError },
       ] = await Promise.all([
         supabase
           .from("mock_tests")
@@ -95,17 +127,27 @@ export default function Dashboard() {
           .select("mock_test_id, status")
           .eq("user_id", user.id)
           .eq("status", "completed"),
+        supabase
+          .from("purchases")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("product_key", "dmat_lifetime")
+          .eq("status", "paid")
+          .limit(1),
       ]);
 
       if (testError) throw testError;
       if (attemptError) throw attemptError;
       if (sessionError) throw sessionError;
+      if (purchaseError) throw purchaseError;
 
-     const allTests = ((testData || []) as MockTest[])
-  .sort((a, b) => a.title.localeCompare(b.title))
-  .slice(0, 3);
+      const allTests = ((testData || []) as MockTest[])
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .slice(0, 3);
+
       setTests(allTests);
       setAttempts((attemptData || []) as Attempt[]);
+      setHasLifetimeAccess((purchaseData || []).length > 0);
 
       const completedIds = [
         ...new Set(
@@ -128,19 +170,150 @@ export default function Dashboard() {
   }, [router, supabase]);
 
   useEffect(() => {
-  let cancelled = false;
+    let cancelled = false;
 
-  const run = async () => {
-    if (cancelled) return;
-    await loadDashboard();
+    const run = async () => {
+      if (cancelled) return;
+      await loadDashboard();
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDashboard]);
+
+  const loadRazorpay = async () => {
+    if (window.Razorpay) return window.Razorpay;
+
+    await new Promise<void>((resolve, reject) => {
+      const existingScript = document.querySelector<HTMLScriptElement>(
+        'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+      );
+
+      if (existingScript) {
+        existingScript.addEventListener("load", () => resolve(), { once: true });
+        existingScript.addEventListener(
+          "error",
+          () => reject(new Error("Unable to load Razorpay Checkout.")),
+          { once: true }
+        );
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () =>
+        reject(new Error("Unable to load Razorpay Checkout."));
+      document.body.appendChild(script);
+    });
+
+    if (!window.Razorpay) {
+      throw new Error("Razorpay Checkout did not load. Please try again.");
+    }
+
+    return window.Razorpay;
   };
 
-  void run();
+  const handlePurchase = async () => {
+    if (purchaseLoading || hasLifetimeAccess) return;
 
-  return () => {
-    cancelled = true;
+    setPurchaseLoading(true);
+    setPaymentMessage("");
+    setErrorMessage("");
+
+    try {
+      const orderResponse = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ couponCode: couponCode.trim() }),
+      });
+
+      const orderData = await orderResponse.json();
+
+      if (!orderResponse.ok) {
+        throw new Error(orderData.error || "Unable to start your purchase.");
+      }
+
+      if (orderData.success === true && orderData.freeAccess === true) {
+        setHasLifetimeAccess(true);
+        setCouponCode("");
+        setPaymentMessage("Coupon accepted! Your lifetime access is active.");
+        setPurchaseLoading(false);
+        return;
+      }
+
+      if (
+        !orderData.orderId ||
+        !orderData.keyId ||
+        !orderData.amount ||
+        !orderData.currency
+      ) {
+        throw new Error("Invalid checkout details. Please try again.");
+      }
+
+      const RazorpayCheckout = await loadRazorpay();
+
+      const checkout = new RazorpayCheckout({
+        key: orderData.keyId,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "DMAT Mock Test",
+        description: "Lifetime access to included mock tests",
+        order_id: orderData.orderId,
+        prefill: { email: userEmail },
+        theme: { color: "#2563eb" },
+        modal: { ondismiss: () => setPurchaseLoading(false) },
+        handler: async (response: PaymentVerificationResponse) => {
+          try {
+            const verifyResponse = await fetch("/api/payments/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(response),
+            });
+
+            const verifyData = await verifyResponse.json();
+
+            if (!verifyResponse.ok || verifyData.success !== true) {
+              throw new Error(
+                verifyData.error ||
+                  "Payment verification is pending. Refresh your dashboard and check your access."
+              );
+            }
+
+            setHasLifetimeAccess(true);
+            setPaymentMessage(
+              "Payment verified successfully! Your lifetime access is active."
+            );
+            setErrorMessage("");
+            setCouponCode("");
+            setPurchaseLoading(false);
+          } catch (error) {
+            console.error("Payment verification error:", error);
+            setErrorMessage(
+              error instanceof Error
+                ? error.message
+                : "Unable to verify your payment. Please contact support."
+            );
+            setPurchaseLoading(false);
+          }
+        },
+      });
+
+      checkout.open();
+    } catch (error) {
+      console.error("Purchase error:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to start checkout. Please try again."
+      );
+      setPurchaseLoading(false);
+    }
   };
-}, [loadDashboard]);
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -167,6 +340,13 @@ export default function Dashboard() {
   };
 
   const handleStartTest = (test: MockTest, index: number) => {
+    if (!hasLifetimeAccess) {
+      setErrorMessage(
+        "Please unlock DMAT Lifetime Access before starting a mock test."
+      );
+      return;
+    }
+
     if (index > 0 && !completedTestIds.includes(tests[index - 1]?.id)) {
       setErrorMessage(
         `Complete Mock Test ${index} before starting Mock Test ${index + 1}.`
@@ -185,7 +365,7 @@ export default function Dashboard() {
     setErrorMessage("");
 
     router.push(
-     `/exam/instructions?testId=${encodeURIComponent(test.id)}`
+      `/exam/instructions?testId=${encodeURIComponent(test.id)}`
     );
   };
 
@@ -210,7 +390,10 @@ export default function Dashboard() {
           attempts.reduce((total, attempt) => {
             const totalQuestions = attempt.total_questions || 0;
             if (!totalQuestions) return total;
-            return total + ((attempt.score || 0) / totalQuestions) * 100;
+            return (
+              total +
+              ((attempt.score || 0) / totalQuestions) * 100
+            );
           }, 0) / attempts.length
         )
       : 0;
@@ -288,10 +471,7 @@ export default function Dashboard() {
                 : "--"
             }
           />
-          <StatCard
-            label="Questions Attempted"
-            value={totalQuestionsAttempted}
-          />
+          <StatCard label="Questions Attempted" value={totalQuestionsAttempted} />
           <StatCard
             label="Best Score"
             value={
@@ -301,6 +481,66 @@ export default function Dashboard() {
             }
             footer={`Average: ${averagePercentage}%`}
           />
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-blue-200 bg-white p-6 md:p-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900">
+                DMAT Lifetime Access
+              </h3>
+              <p className="mt-2 text-gray-600">
+                Pay once to unlock access to all included mock tests.
+              </p>
+              <p className="mt-2 text-sm text-gray-500">
+                Complete each test to unlock the next one.
+              </p>
+            </div>
+
+            <div className="md:min-w-56 md:text-right">
+              <p className="text-3xl font-bold text-gray-900">
+                {hasLifetimeAccess ? "Unlocked" : "₹99"}
+              </p>
+
+              {!hasLifetimeAccess && (
+                <div className="mt-3">
+                  <label
+                    htmlFor="dmat-coupon"
+                    className="mb-1 block text-left text-sm font-medium text-gray-700"
+                  >
+                    Private coupon code (optional)
+                  </label>
+                  <input
+                    id="dmat-coupon"
+                    value={couponCode}
+                    onChange={(event) => setCouponCode(event.target.value)}
+                    placeholder="Enter coupon code"
+                    autoComplete="off"
+                    disabled={purchaseLoading}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-500 disabled:bg-gray-100"
+                  />
+                </div>
+              )}
+
+              <button
+                onClick={handlePurchase}
+                disabled={purchaseLoading || hasLifetimeAccess}
+                className="mt-4 w-full rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+              >
+                {hasLifetimeAccess
+                  ? "Lifetime Access Active"
+                  : purchaseLoading
+                    ? "Processing..."
+                    : "Unlock All Mock Tests — ₹99"}
+              </button>
+            </div>
+          </div>
+
+          {paymentMessage && (
+            <p role="status" className="mt-4 text-sm text-green-700">
+              {paymentMessage}
+            </p>
+          )}
         </div>
 
         <div className="mt-10">
@@ -361,7 +601,6 @@ export default function Dashboard() {
                         <h4 className="mt-4 text-xl font-bold text-gray-900">
                           {test.title}
                         </h4>
-
                         <p className="mt-2 max-w-2xl text-gray-700">
                           {test.description ||
                             "Practice DMAT-style questions in a timed mock exam."}
@@ -382,30 +621,32 @@ export default function Dashboard() {
                       </div>
 
                       <div className="md:min-w-36 md:text-right">
-                        <p className="text-2xl font-bold text-gray-900">
-                          {Number(test.price) > 0
-                            ? `₹${Number(test.price)}`
-                            : "Included"}
+                        <p className="text-sm font-medium text-gray-600">
+                          {hasLifetimeAccess
+                            ? "Included with access"
+                            : "Lifetime access required"}
                         </p>
-
                         <button
                           onClick={() => handleStartTest(test, index)}
                           disabled={
+                            !hasLifetimeAccess ||
                             isLocked ||
                             !isReady ||
                             startingTestId === test.id
                           }
                           className="mt-4 rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
                         >
-                          {isLocked
-                            ? "Locked"
-                            : !isReady
-                              ? "Coming Soon"
-                              : startingTestId === test.id
-                                ? "Opening..."
-                                : isCompleted
-                                  ? "Start Again"
-                                  : "Start Mock Test"}
+                          {!hasLifetimeAccess
+                            ? "Unlock Access"
+                            : isLocked
+                              ? "Locked"
+                              : !isReady
+                                ? "Coming Soon"
+                                : startingTestId === test.id
+                                  ? "Opening..."
+                                  : isCompleted
+                                    ? "Start Again"
+                                    : "Start Mock Test"}
                         </button>
                       </div>
                     </div>
