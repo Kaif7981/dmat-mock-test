@@ -118,7 +118,20 @@ const startResponse = await fetch("/api/exam/start", {
   }),
 });
 
-const startData = await startResponse.json();
+const responseText = await startResponse.text();
+
+let startData: {
+  success?: boolean;
+  sessionId?: string;
+  error?: string;
+};
+
+try {
+  startData = JSON.parse(responseText);
+} catch {
+  console.error("Unexpected exam API response:", responseText);
+  throw new Error("The server returned an invalid response.");
+}
 
 if (
   !startResponse.ok ||
