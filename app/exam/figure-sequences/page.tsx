@@ -476,24 +476,24 @@ useEffect(() => {
                 <div className="flex min-w-max items-center justify-center gap-2 sm:gap-3">
                   {figures.map((figure, index) => (
                     <div key={index} className="text-center">
-                      <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-gray-200 bg-white sm:h-24 sm:w-24">
-                        <FigureMatrix
-  cells={figureToMatrixCells(figure)}
-  size="small"
-  label={`Given figure ${index + 1}`}
-/>
-                      </div>
+                      <div className="flex h-32 w-32 items-center justify-center rounded-xl border border-gray-200 bg-white sm:h-36 sm:w-36">
+  <FigureMatrix
+    cells={figureToMatrixCells(figure)}
+    size="large"
+    label={`Given figure ${index + 1}`}
+  />
+</div>
                       <p className="mt-2 text-xs text-gray-500">
                         Figure {index + 1}
                       </p>
                     </div>
                   ))}
 
-                  <div className="flex h-20 w-20 items-center justify-center rounded-xl border-2 border-dashed border-blue-400 bg-blue-50 text-2xl font-bold text-blue-600 sm:h-24 sm:w-24">
+                  <div className="flex h-32 w-32 items-center justify-center rounded-xl border-2 border-dashed border-blue-400 bg-blue-50 text-3xl font-bold text-blue-600 sm:h-36 sm:w-36">
                     5
                   </div>
 
-                  <div className="flex h-20 w-20 items-center justify-center rounded-xl border-2 border-dashed border-blue-400 bg-blue-50 text-2xl font-bold text-blue-600 sm:h-24 sm:w-24">
+                  <div className="flex h-32 w-32 items-center justify-center rounded-xl border-2 border-dashed border-blue-400 bg-blue-50 text-3xl font-bold text-blue-600 sm:h-36 sm:w-36">
                     6
                   </div>
                 </div>

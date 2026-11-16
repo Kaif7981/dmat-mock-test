@@ -144,10 +144,10 @@ function Frame({ frame }: { frame?: FrameData | null }) {
       : [frame];
 
   return (
-    <div className="flex h-24 w-24 items-center justify-center rounded-xl border-2 border-gray-200 bg-white sm:h-28 sm:w-28">
+    <div className="flex h-32 w-32 items-center justify-center rounded-xl border-2 border-gray-200 bg-white sm:h-36 sm:w-36">
       <svg
         viewBox="0 0 100 100"
-        className="h-full w-full text-gray-900"
+        className="h-[90%] w-[90%] text-gray-900"
         role="img"
         aria-label="Geometric pattern figure"
       >
@@ -171,7 +171,7 @@ export default function FigureSequence({
 
       {showQuestionMark && (
         <div
-          className="flex h-24 w-24 items-center justify-center rounded-xl border-2 border-dashed border-blue-400 bg-blue-50 sm:h-28 sm:w-28"
+          className="flex h-32 w-32 items-center justify-center rounded-xl border-2 border-dashed border-blue-400 bg-blue-50 sm:h-36 sm:w-36"
           aria-label="Missing figure"
         >
           <span className="text-4xl font-bold text-blue-600">?</span>
