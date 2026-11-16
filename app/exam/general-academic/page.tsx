@@ -13,6 +13,15 @@ type Question = {
   option_c: string;
   option_d: string;
   difficulty: string;
+  passage_id: string | null;
+};
+
+type Passage = {
+  id: string;
+  passage_number: number;
+  title: string;
+  passage_text: string;
+  topic: string | null;
 };
 
 type Result = {
@@ -34,9 +43,8 @@ function GeneralAcademicContent() {
   const supabase = useMemo(() => createClient(), []);
   const autoSubmitStarted = useRef(false);
 
-  const [questions, setQuestions] = useState<Question[]>(
-    []
-  );
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [passages, setPassages] = useState<Record<string, Passage>>({});
 
   const [answers, setAnswers] = useState<
     Record<string, string>
@@ -97,7 +105,8 @@ function GeneralAcademicContent() {
             option_b,
             option_c,
             option_d,
-            difficulty
+            difficulty,
+            passage_id
           `)
           .eq("mock_test_id", mockTest.id)
           .eq("section", "general_academic")
@@ -108,8 +117,39 @@ function GeneralAcademicContent() {
         }
 
         if (!cancelled) {
-          setQuestions((data ?? []) as Question[]);
+          const loadedQuestions = (data ?? []) as Question[];
+          setQuestions(loadedQuestions);
           setCurrentQuestion(0);
+
+          // Load only passages linked to questions in this section.
+          const passageIds = [
+            ...new Set(
+              loadedQuestions
+                .map((question) => question.passage_id)
+                .filter((id): id is string => Boolean(id))
+            ),
+          ];
+
+          if (passageIds.length > 0) {
+            const { data: passageData, error: passageError } = await supabase
+              .from("passages")
+              .select("id, passage_number, title, passage_text, topic")
+              .in("id", passageIds);
+
+            if (passageError) {
+              throw new Error(`Unable to load academic passages: ${passageError.message}`);
+            }
+
+            if (!cancelled) {
+              const passageMap = Object.fromEntries(
+                ((passageData ?? []) as Passage[]).map((passage) => [
+                  passage.id,
+                  passage,
+                ])
+              );
+              setPassages(passageMap);
+            }
+          }
         }
       } catch (error) {
         console.error("General Academic loading error:", error);
@@ -437,6 +477,10 @@ function GeneralAcademicContent() {
   const selectedAnswer =
     answers[question.id];
 
+  const currentPassage = question.passage_id
+    ? passages[question.passage_id]
+    : null;
+
   const answeredCount =
     Object.keys(answers).length;
 
@@ -492,8 +536,30 @@ function GeneralAcademicContent() {
 
       {/* TWO-COLUMN EXAM LAYOUT */}
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-6 items-start">
-          {/* LEFT: QUESTION AND ANSWERS */}
+        <div className={`grid grid-cols-1 ${currentPassage ? "lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]" : "lg:grid-cols-1"} gap-6 items-start`}>
+          {/* PASSAGE: SHOWN WHEN THE CURRENT QUESTION IS LINKED TO ONE */}
+          {currentPassage && (
+            <section className="min-w-0 lg:sticky lg:top-36">
+              <article className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 md:p-7 max-h-[calc(100vh-10rem)] overflow-y-auto">
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold">
+                    Passage {currentPassage.passage_number}
+                  </span>
+                  {currentPassage.topic && (
+                    <span className="text-xs text-gray-500">{currentPassage.topic}</span>
+                  )}
+                </div>
+                <h2 className="text-xl md:text-2xl font-bold leading-snug text-gray-900">
+                  {currentPassage.title}
+                </h2>
+                <div className="mt-5 text-[15px] md:text-base leading-7 text-gray-700 whitespace-pre-line">
+                  {currentPassage.passage_text}
+                </div>
+              </article>
+            </section>
+          )}
+
+          {/* QUESTION AND ANSWERS */}
           <section className="min-w-0">
             <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 md:p-8">
               <div className="flex items-center justify-between gap-3">
@@ -587,8 +653,10 @@ function GeneralAcademicContent() {
             </div>
           </section>
 
-          {/* RIGHT: QUESTION NAVIGATOR */}
-          <aside className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 lg:sticky lg:top-36">
+        </div>
+
+        {/* QUESTION NAVIGATOR: FULL WIDTH BELOW THE PASSAGE AND QUESTION */}
+        <aside className="mt-6 bg-white border border-gray-200 rounded-2xl shadow-sm p-5 md:p-6">
             <h2 className="font-bold text-gray-900">
               Question Navigator
             </h2>
@@ -608,7 +676,7 @@ function GeneralAcademicContent() {
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-5 lg:grid-cols-4 gap-2">
+            <div className="mt-5 grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 xl:grid-cols-12 gap-2">
               {questions.map((item, index) => {
                 const isAnswered = Boolean(answers[item.id]);
                 const isCurrent = index === currentQuestion;
@@ -648,8 +716,7 @@ function GeneralAcademicContent() {
                 </span>
               </div>
             </div>
-          </aside>
-        </div>
+        </aside>
       </div>
     </main>
   );
